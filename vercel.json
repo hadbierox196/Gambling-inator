@@ -1,15 +1,15 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "api/*.py", "use": "@vercel/python" },
-    { "src": "public/**", "use": "@vercel/static" }
-  ],
+  "functions": {
+    "api/*.py": {
+      "runtime": "vercel-python@0.1.0",
+      "maxDuration": 10
+    }
+  },
   "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1.py" },
-    { "src": "/(.*)",     "dest": "/public/$1" },
-    { "src": "/",         "dest": "/public/index.html" }
-  ],
-  "env": {
-    "PYTHONPATH": "/var/task/api"
-  }
+    { "src": "/api/analyze", "dest": "/api/analyze.py" },
+    { "src": "/api/scan",    "dest": "/api/scan.py" },
+    { "src": "/(.*)",        "dest": "/public/$1" },
+    { "src": "/",            "dest": "/public/index.html" }
+  ]
 }

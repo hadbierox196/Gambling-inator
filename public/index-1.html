@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PocketSignals – Real Data Only</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#080b0f;--surface:#0e1318;--card:#131a22;--border:#1e2a35;
+  --buy:#00e5a0;--sell:#ff4466;--neutral:#f5c842;--dim:#4a6070;
+  --text:#d4e8f0;--accent:#00b8d9;
+  --font-head:'Syne',sans-serif;--font-mono:'Space Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-size:13px;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.07) 2px,rgba(0,0,0,.07) 4px);pointer-events:none;z-index:9999}
+
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,#080b0f 0%,#0a1520 100%);position:sticky;top:0;z-index:100}
+.logo{font-family:var(--font-head);font-size:20px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(90deg,var(--accent),var(--buy));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo span{font-weight:400;opacity:.55}
+.status-row{display:flex;align-items:center;gap:10px}
+.dot{width:7px;height:7px;border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.dot.ok{background:var(--buy);box-shadow:0 0 6px var(--buy)}
+.dot.err{background:var(--sell);box-shadow:0 0 6px var(--sell);animation:none}
+.dot.idle{background:var(--dim);animation:none}
+.dot.loading{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+#status-text{font-size:11px;color:var(--dim)}
+
+/* data source badge */
+.src-badge{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 9px;border-radius:3px;border:1px solid}
+.src-badge.real{border-color:var(--buy);color:var(--buy)}
+.src-badge.nodata{border-color:var(--sell);color:var(--sell)}
+.src-badge.partial{border-color:var(--neutral);color:var(--neutral)}
+.src-badge.unknown{border-color:var(--dim);color:var(--dim)}
+
+.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+.tf-btn{background:transparent;border:1px solid var(--border);color:var(--dim);font-family:var(--font-mono);font-size:11px;padding:5px 13px;cursor:pointer;border-radius:3px;transition:all .15s;letter-spacing:1px}
+.tf-btn:hover{border-color:var(--accent);color:var(--accent)}
+.tf-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,184,217,.1)}
+.scan-btn{background:var(--accent);color:#000;border:none;font-family:var(--font-mono);font-size:11px;font-weight:700;padding:6px 18px;cursor:pointer;border-radius:3px;letter-spacing:1px;transition:all .15s}
+.scan-btn:hover{background:var(--buy)}
+.scan-btn:disabled{opacity:.35;cursor:not-allowed}
+.auto-label{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);cursor:pointer}
+.auto-label input{accent-color:var(--accent)}
+.threshold-wrap{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim)}
+.threshold-wrap input[type=range]{accent-color:var(--accent);width:80px;cursor:pointer}
+.last-scan{margin-left:auto;font-size:10px;color:var(--dim)}
+.countdown{font-size:10px;color:var(--dim)}
+.countdown span{color:var(--accent);font-weight:700}
+
+.layout{display:grid;grid-template-columns:270px 1fr;height:calc(100vh - 106px);overflow:hidden}
+.sidebar{border-right:1px solid var(--border);overflow-y:auto;background:var(--surface)}
+.sidebar-title{font-family:var(--font-head);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--dim);padding:12px 14px 9px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+
+.pair-row{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;cursor:pointer;border-bottom:1px solid rgba(30,42,53,.4);transition:background .1s}
+.pair-row:hover{background:rgba(0,184,217,.04)}
+.pair-row.selected{background:rgba(0,184,217,.07);border-left:2px solid var(--accent)}
+.pair-row.no-data{opacity:.45;cursor:default}
+.pair-row.no-data:hover{background:transparent}
+.pair-name{font-size:12px;font-weight:700}
+.pair-conf{font-size:10px;color:var(--dim);margin-top:2px}
+
+.dir-badge{font-size:9px;padding:2px 7px;border-radius:2px;font-weight:700;letter-spacing:.5px}
+.dir-badge.BUY{background:rgba(0,229,160,.12);color:var(--buy)}
+.dir-badge.SELL{background:rgba(255,68,102,.12);color:var(--sell)}
+.dir-badge.NEUTRAL{background:rgba(245,200,66,.08);color:var(--neutral)}
+.dir-badge.NO_DATA{background:rgba(74,96,112,.15);color:var(--dim)}
+
+.main-panel{overflow-y:auto;padding:22px 26px;background:var(--bg)}
+
+/* empty / error states */
+.state-box{display:flex;flex-direction:column;align-items:center;justify-content:center;height:55%;gap:14px;text-align:center;padding:0 40px}
+.state-icon{font-size:44px;opacity:.25}
+.state-title{font-family:var(--font-head);font-size:16px;font-weight:700;color:var(--dim)}
+.state-sub{font-size:11px;color:var(--dim);line-height:1.7;max-width:420px}
+.state-reason{font-size:10px;color:var(--sell);background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.2);border-radius:4px;padding:8px 14px;margin-top:4px;font-family:var(--font-mono);max-width:500px;word-break:break-all}
+
+/* signal card */
+.signal-header{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.signal-dir{font-family:var(--font-head);font-size:40px;font-weight:800;letter-spacing:-1px;line-height:1}
+.signal-dir.BUY{color:var(--buy);text-shadow:0 0 30px rgba(0,229,160,.3)}
+.signal-dir.SELL{color:var(--sell);text-shadow:0 0 30px rgba(255,68,102,.3)}
+.signal-dir.NEUTRAL{color:var(--neutral)}
+.signal-meta{display:flex;flex-direction:column;gap:3px}
+.signal-pair{font-family:var(--font-head);font-size:18px;font-weight:700}
+.signal-sub{font-size:10px;color:var(--dim);letter-spacing:.5px}
+.data-source-tag{font-size:9px;padding:2px 7px;border-radius:2px;letter-spacing:1px;text-transform:uppercase;margin-top:2px;display:inline-block;border:1px solid var(--buy);color:var(--buy)}
+
+/* confidence ring */
+.conf-ring-wrap{margin-left:auto;position:relative;flex-shrink:0}
+.conf-ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--font-head)}
+.conf-val{font-size:20px;font-weight:800}
+.conf-txt{font-size:9px;color:var(--dim);letter-spacing:1px}
+
+/* entry grid */
+.entry-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+.entry-card{background:var(--card);border:1px solid var(--border);border-radius:5px;padding:12px 14px}
+.entry-card .label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
+.entry-card .value{font-family:var(--font-head);font-size:15px;font-weight:700}
+.entry-card.tp .value{color:var(--buy)}
+.entry-card.sl .value{color:var(--sell)}
+.entry-card.zone .value{font-size:11px;color:var(--accent)}
+.entry-card.exp .value{color:var(--neutral)}
+
+/* alignment dots */
+.align-row{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+.align-dots{display:flex;gap:4px}
+.align-dot{width:9px;height:9px;border-radius:50%;border:1px solid var(--border)}
+.align-dot.BUY{background:var(--buy);border-color:var(--buy)}
+.align-dot.SELL{background:var(--sell);border-color:var(--sell)}
+.align-dot.NEUTRAL{background:transparent}
+.align-label{font-size:11px;color:var(--dim)}
+
+/* indicators */
+.section-title{font-family:var(--font-head);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:12px}
+.ind-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:9px;margin-bottom:24px}
+.ind-card{background:var(--card);border:1px solid var(--border);border-radius:5px;padding:11px 13px;transition:border-color .2s}
+.ind-card.BUY{border-left:3px solid var(--buy)}
+.ind-card.SELL{border-left:3px solid var(--sell)}
+.ind-card.NEUTRAL{border-left:3px solid var(--neutral)}
+.ind-name{font-size:10px;color:var(--dim);letter-spacing:.5px;margin-bottom:5px}
+.ind-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.ind-sig{font-size:11px;font-weight:700}
+.ind-sig.BUY{color:var(--buy)}.ind-sig.SELL{color:var(--sell)}.ind-sig.NEUTRAL{color:var(--neutral)}
+.ind-val{font-size:10px;color:var(--dim)}
+.str-bar-bg{height:3px;background:var(--border);border-radius:2px;margin-top:5px}
+.str-bar-fill{height:100%;border-radius:2px;transition:width .5s ease}
+.str-bar-fill.BUY{background:var(--buy)}.str-bar-fill.SELL{background:var(--sell)}.str-bar-fill.NEUTRAL{background:var(--neutral)}
+
+.vol-pill{display:inline-block;padding:2px 7px;border-radius:20px;font-size:9px;font-weight:700;letter-spacing:1px}
+.vol-pill.HIGH{background:rgba(255,68,102,.12);color:var(--sell)}
+.vol-pill.MEDIUM{background:rgba(245,200,66,.08);color:var(--neutral)}
+.vol-pill.LOW{background:rgba(0,229,160,.08);color:var(--buy)}
+
+/* recommendation banner */
+.rec-banner{border-radius:5px;padding:12px 16px;margin-bottom:20px;border:1px solid}
+.rec-banner.strong{border-color:rgba(0,229,160,.3);background:rgba(0,229,160,.06)}
+.rec-banner.moderate{border-color:rgba(245,200,66,.3);background:rgba(245,200,66,.05)}
+.rec-banner.weak{border-color:rgba(74,96,112,.3);background:rgba(74,96,112,.05)}
+.rec-title{font-family:var(--font-head);font-size:13px;font-weight:700;margin-bottom:3px}
+.rec-detail{font-size:11px;color:var(--dim)}
+
+/* loader */
+.loader{display:flex;align-items:center;justify-content:center;height:55%;gap:8px;color:var(--dim)}
+.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+@media(max-width:720px){.layout{grid-template-columns:1fr}.sidebar{display:none}.entry-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Pocket<span>Signals</span></div>
+  <div class="status-row">
+    <div id="src-badge" class="src-badge unknown">–</div>
+    <div class="dot idle" id="status-dot"></div>
+    <span id="status-text">Idle</span>
+  </div>
+</header>
+
+<div class="controls">
+  <button class="tf-btn active" data-tf="M1">M1</button>
+  <button class="tf-btn" data-tf="M5">M5</button>
+  <button class="tf-btn" data-tf="M15">M15</button>
+  <button class="scan-btn" id="scan-btn">⟳ SCAN</button>
+  <label class="auto-label"><input type="checkbox" id="auto-chk" checked/> Auto 60s</label>
+  <div class="threshold-wrap">
+    Min confidence:
+    <input type="range" id="threshold" min="40" max="95" value="60" step="5"/>
+    <span id="threshold-val">60%</span>
+  </div>
+  <div class="last-scan" id="last-scan"></div>
+  <div class="countdown" id="countdown"></div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-title">
+      <span>Pairs</span>
+      <span id="pair-count" style="font-size:10px;color:var(--dim)"></span>
+    </div>
+    <div id="pair-list"></div>
+  </div>
+  <div class="main-panel" id="main-panel">
+    <div class="state-box">
+      <div class="state-icon">◈</div>
+      <div class="state-title">READY</div>
+      <div class="state-sub">Click Scan to fetch real candle data from Pocket Option.<br>No data will be simulated or fabricated.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.hostname==="localhost" ? "http://localhost:3000" : "";
+
+const state = {
+  tf:"M1", threshold:60, signals:[], noDataPairs:[],
+  selected:null, loading:false, autoScan:true,
+  autoInterval:null, countdownTimer:null, countdown:60,
+};
+
+// DOM
+const scanBtn      = document.getElementById("scan-btn");
+const pairList     = document.getElementById("pair-list");
+const pairCount    = document.getElementById("pair-count");
+const mainPanel    = document.getElementById("main-panel");
+const lastScan     = document.getElementById("last-scan");
+const thresholdEl  = document.getElementById("threshold");
+const thresholdVal = document.getElementById("threshold-val");
+const srcBadge     = document.getElementById("src-badge");
+const statusDot    = document.getElementById("status-dot");
+const statusText   = document.getElementById("status-text");
+const countdownEl  = document.getElementById("countdown");
+const autoChk      = document.getElementById("auto-chk");
+
+// TF buttons
+document.querySelectorAll(".tf-btn").forEach(b => b.addEventListener("click", ()=>{
+  document.querySelectorAll(".tf-btn").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); state.tf = b.dataset.tf; scan();
+}));
+
+thresholdEl.addEventListener("input", ()=>{
+  state.threshold = +thresholdEl.value;
+  thresholdVal.textContent = state.threshold + "%";
+  renderPairList();
+});
+scanBtn.addEventListener("click", scan);
+autoChk.addEventListener("change", ()=>{ state.autoScan=autoChk.checked; state.autoScan?startAuto():stopAuto(); });
+
+function startAuto(){
+  stopAuto();
+  state.countdown=60;
+  state.autoInterval  = setInterval(scan, 60000);
+  state.countdownTimer= setInterval(()=>{
+    state.countdown--;
+    if(state.countdown<=0) state.countdown=60;
+    countdownEl.innerHTML=`Next in <span>${state.countdown}s</span>`;
+  },1000);
+}
+function stopAuto(){ clearInterval(state.autoInterval); clearInterval(state.countdownTimer); countdownEl.textContent=""; }
+
+// ── SCAN ────────────────────────────────────────────────────────────────────
+async function scan(){
+  if(state.loading) return;
+  state.loading=true; scanBtn.disabled=true;
+  setStatus("loading","Fetching real data…");
+  mainPanel.innerHTML=`<div class="loader"><div class="spinner"></div>Connecting to Pocket Option…</div>`;
+
+  try{
+    const res  = await fetch(`${API}/api/scan?tf=${state.tf}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+
+    state.signals      = data.signals     || [];
+    state.noDataPairs  = data.no_data_pairs|| [];
+    const allReal      = data.all_real_data;
+    const sigCount     = state.signals.length;
+    const noCount      = state.noDataPairs.length;
+
+    // Update source badge
+    if(noCount===0 && sigCount>0){
+      setSrcBadge("real","LIVE DATA");
+      setStatus("ok",`${sigCount} signals from real data`);
+    } else if(sigCount===0 && noCount>0){
+      setSrcBadge("nodata","NO DATA");
+      setStatus("err","Could not fetch real data");
+    } else {
+      setSrcBadge("partial",`${sigCount} live / ${noCount} no-data`);
+      setStatus("ok",`Partial – ${sigCount} pairs got data`);
+    }
+
+    lastScan.textContent = "Scanned " + new Date().toLocaleTimeString();
+    renderPairList();
+
+    if(sigCount>0){
+      selectSignal(state.signals[0].pair);
+    } else {
+      showNoDataState(state.noDataPairs);
+    }
+  } catch(err){
+    setStatus("err","Cannot reach API");
+    setSrcBadge("nodata","NO DATA");
+    mainPanel.innerHTML=`
+      <div class="state-box">
+        <div class="state-icon">⚠</div>
+        <div class="state-title">API UNREACHABLE</div>
+        <div class="state-sub">Could not connect to the signal API.<br>Make sure the Vercel deployment is running.</div>
+        <div class="state-reason">${err.message}</div>
+      </div>`;
+    state.signals=[];state.noDataPairs=[];
+    renderPairList();
+  }
+
+  state.loading=false; scanBtn.disabled=false; state.countdown=60;
+}
+
+// ── SIDEBAR ──────────────────────────────────────────────────────────────────
+function renderPairList(){
+  const total = state.signals.length + state.noDataPairs.length;
+  pairCount.textContent = total ? `${total} pairs` : "";
+
+  const sigRows = state.signals.map(s=>{
+    const aboveThreshold = s.confidence >= state.threshold && s.direction!=="NEUTRAL";
+    const dimStyle = aboveThreshold ? "" : "opacity:.55";
+    return `<div class="pair-row ${s.pair===state.selected?'selected':''}"
+                 onclick="selectSignal('${s.pair}')" style="${dimStyle}">
+      <div>
+        <div class="pair-name">${s.pair.replace("_otc","")}</div>
+        <div class="pair-conf">${s.confidence.toFixed(1)}% · ${s.timeframe}</div>
+      </div>
+      <span class="dir-badge ${s.direction}">${s.direction}</span>
+    </div>`;
+  });
+
+  const noDataRows = state.noDataPairs.map(p=>`
+    <div class="pair-row no-data">
+      <div>
+        <div class="pair-name">${p.pair.replace("_otc","")}</div>
+        <div class="pair-conf" style="color:var(--sell)">no data</div>
+      </div>
+      <span class="dir-badge NO_DATA">–</span>
+    </div>`);
+
+  pairList.innerHTML = sigRows.join("") + noDataRows.join("");
+}
+
+// ── NO DATA STATE ─────────────────────────────────────────────────────────────
+function showNoDataState(noDataPairs){
+  const list = noDataPairs.map(p=>`<div style="margin-bottom:4px">
+    <span style="color:var(--text)">${p.pair.replace("_otc","")}</span>
+    <span style="color:var(--dim);font-size:10px"> — ${p.reason}</span>
+  </div>`).join("");
+  mainPanel.innerHTML=`
+    <div class="state-box">
+      <div class="state-icon">⊘</div>
+      <div class="state-title">NO REAL DATA AVAILABLE</div>
+      <div class="state-sub">
+        Could not fetch live candles from Pocket Option for any pair.<br>
+        No signals have been generated. No data has been fabricated.
+      </div>
+      <div class="state-reason" style="text-align:left;width:100%;max-width:520px">
+        ${list || "All endpoints failed or timed out."}
+      </div>
+    </div>`;
+}
+
+// ── SELECT PAIR ───────────────────────────────────────────────────────────────
+function selectSignal(pair){
+  state.selected=pair;
+  const sig=state.signals.find(s=>s.pair===pair);
+  if(!sig){ renderPairList(); return; }
+  renderPairList();
+  renderSignal(sig);
+}
+
+// ── RENDER SIGNAL ─────────────────────────────────────────────────────────────
+function renderSignal(sig){
+  const ind=sig.indicators||{};
+  const dir=sig.direction;
+  const confC=sig.confidence>=75?"var(--buy)":sig.confidence>=55?"var(--neutral)":"var(--sell)";
+
+  const dotMap={
+    RSI:ind.rsi?.signal, MACD:ind.macd?.direction, BB:ind.bollinger?.signal,
+    Stoch:ind.stochastic?.signal, Alligator:ind.alligator?.signal,
+    Momentum:ind.momentum?.signal, EMA:ind.ema_cross?.signal,
+  };
+  const dots=Object.entries(dotMap).map(([n,s])=>
+    `<div class="align-dot ${s||'NEUTRAL'}" title="${n}: ${s||'N/A'}"></div>`).join("");
+
+  const r=42,circ=2*Math.PI*r,dash=sig.confidence/100*circ;
+
+  // Recommendation
+  let recHtml="";
+  if(dir==="NEUTRAL" || sig.confidence<55){
+    recHtml=`<div class="rec-banner weak"><div class="rec-title" style="color:var(--dim)">– NO CLEAR SIGNAL</div><div class="rec-detail">Indicators are mixed. No trade recommended.</div></div>`;
+  } else if(sig.confidence>=75){
+    recHtml=`<div class="rec-banner strong"><div class="rec-title" style="color:var(--buy)">✔ STRONG ${dir} SIGNAL</div><div class="rec-detail">Enter near ${sig.entry_zone[0]} – ${sig.entry_zone[1]} &nbsp;│&nbsp; TP: ${sig.tp} &nbsp;│&nbsp; SL: ${sig.sl} &nbsp;│&nbsp; Expiry: ~${sig.expiry_mins}m</div></div>`;
+  } else {
+    recHtml=`<div class="rec-banner moderate"><div class="rec-title" style="color:var(--neutral)">⚠ MODERATE ${dir} SIGNAL</div><div class="rec-detail">Consider waiting for more confirmation before entering.</div></div>`;
+  }
+
+  mainPanel.innerHTML=`
+    <div class="signal-header">
+      <div class="signal-dir ${dir}">${dir}</div>
+      <div class="signal-meta">
+        <div class="signal-pair">${sig.pair.replace("_otc","")}</div>
+        <div class="signal-sub">${sig.timeframe} · ${new Date(sig.timestamp).toLocaleTimeString()}</div>
+        <div class="signal-sub">${sig.candles_used} candles used</div>
+        <span class="data-source-tag">● REAL DATA – ${sig.data_source||"pocket_option_ws"}</span>
+      </div>
+      <div class="conf-ring-wrap">
+        <svg width="96" height="96" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="${r}" fill="none" stroke="var(--border)" stroke-width="6"/>
+          <circle cx="50" cy="50" r="${r}" fill="none" stroke="${confC}" stroke-width="6"
+            stroke-dasharray="${dash} ${circ}" stroke-dashoffset="${circ/4}" stroke-linecap="round"/>
+        </svg>
+        <div class="conf-ring-label">
+          <div class="conf-val" style="color:${confC}">${sig.confidence.toFixed(0)}%</div>
+          <div class="conf-txt">CONF</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="align-row">
+      <div class="align-dots">${dots}</div>
+      <div class="align-label">${sig.aligned}/${sig.total_indicators} indicators aligned</div>
+    </div>
+
+    ${recHtml}
+
+    <div class="entry-grid">
+      <div class="entry-card zone"><div class="label">Entry Zone</div><div class="value">${sig.entry_zone[0]}<br>${sig.entry_zone[1]}</div></div>
+      <div class="entry-card"><div class="label">Price</div><div class="value">${sig.entry_price}</div></div>
+      <div class="entry-card tp"><div class="label">Take Profit</div><div class="value">${sig.tp}</div></div>
+      <div class="entry-card sl"><div class="label">Stop Loss</div><div class="value">${sig.sl}</div></div>
+    </div>
+
+    <div class="section-title">Indicator Breakdown</div>
+    <div class="ind-grid">
+      ${indCard("RSI (14)",   ind.rsi,        v=>`${v.value}`,                       "signal")}
+      ${indCard("MACD",       ind.macd,       v=>`H: ${v.histogram}`,               "direction")}
+      ${indCard("Bollinger",  ind.bollinger,  v=>`%B:${v.pct_b} W:${v.width}`,      "signal")}
+      ${indCard("Stochastic", ind.stochastic, v=>`K:${v.k} D:${v.d}`,              "signal")}
+      ${indCard("Alligator",  ind.alligator,  v=>`Lips:${v.lips}`,                  "signal")}
+      ${indCard("Momentum",   ind.momentum,   v=>`${v.value>0?"+":""}${v.value}%`,  "signal")}
+      ${indCard("EMA 9/21",   ind.ema_cross,  v=>`${v.crossed_up||v.crossed_down?"⚡ ":""}D:${v.diff}`, "signal")}
+      ${ind.atr?`
+        <div class="ind-card ${ind.atr.volatility==="HIGH"?"SELL":ind.atr.volatility==="LOW"?"BUY":"NEUTRAL"}">
+          <div class="ind-name">ATR (14)</div>
+          <div class="ind-row">
+            <span class="ind-sig">${ind.atr.atr}</span>
+            <span class="vol-pill ${ind.atr.volatility}">${ind.atr.volatility}</span>
+          </div>
+          <div class="ind-val">${ind.atr.pct}% of price</div>
+        </div>`:""}
+    </div>`;
+}
+
+function indCard(name, ind, valFn, sigKey){
+  if(!ind) return `<div class="ind-card NEUTRAL"><div class="ind-name">${name}</div><div class="ind-val" style="color:var(--dim);font-size:11px;margin-top:4px">No data</div></div>`;
+  const sig=ind[sigKey]||"NEUTRAL", str=ind.strength||0, val=valFn(ind);
+  return `<div class="ind-card ${sig}">
+    <div class="ind-name">${name}</div>
+    <div class="ind-row"><span class="ind-sig ${sig}">${sig}</span><span class="ind-val">${val}</span></div>
+    <div class="str-bar-bg"><div class="str-bar-fill ${sig}" style="width:${str}%"></div></div>
+  </div>`;
+}
+
+function setSrcBadge(cls, label){ srcBadge.className=`src-badge ${cls}`; srcBadge.textContent=label; }
+function setStatus(type,msg){
+  statusText.textContent=msg;
+  statusDot.className="dot "+type;
+}
+
+// Init
+if(state.autoScan) startAuto();
+</script>
+</body>
+</html>
